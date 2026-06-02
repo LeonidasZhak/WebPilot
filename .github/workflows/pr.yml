@@ -10,6 +10,75 @@ permissions:
   pull-requests: read
 
 jobs:
+  server-tests:
+    name: Server tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Run server tests
+        run: npm run test --workspace=packages/server-for-chrome-extension
+
+  server-build-macos:
+    name: Server packaging (macOS)
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build pkg server bundle
+        run: npm run build:mac --workspace=packages/server-for-chrome-extension
+
+      - name: Verify pkg artifact and better-sqlite3 sidecar
+        shell: bash
+        run: |
+          set -euo pipefail
+          dist_dir="packages/server-for-chrome-extension/dist"
+
+          if [ ! -f "${dist_dir}/better_sqlite3.node" ]; then
+            echo "Expected better_sqlite3.node next to the macOS pkg output."
+            ls -la "${dist_dir}" || true
+            exit 1
+          fi
+
+          shopt -s nullglob
+          artifacts=("${dist_dir}"/*)
+          executables=()
+          for artifact in "${artifacts[@]}"; do
+            if [ "${artifact}" != "${dist_dir}/better_sqlite3.node" ]; then
+              executables+=("${artifact}")
+            fi
+          done
+
+          if [ ${#executables[@]} -eq 0 ]; then
+            echo "No macOS pkg artifact produced."
+            ls -la "${dist_dir}" || true
+            exit 1
+          fi
+
+          printf 'macOS server artifact: %s\n' "${executables[@]}"
+
   build:
     name: Build (windows)
     # Mac + Linux build legs are intentionally disabled until those platforms
